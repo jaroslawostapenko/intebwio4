@@ -1,0 +1,5 @@
+<!-- robots.txt meta tag - can also use robots.txt file -->
+User-agent: *
+Allow: /
+
+Sitemap: /sitemap.xml
