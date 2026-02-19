@@ -260,9 +260,141 @@ ORDER BY search_count DESC
 LIMIT 50;
 
 -- ============================================================================
+-- SESSION TRACKING TABLE - User session management
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS session_tracking (
+    session_id VARCHAR(64) PRIMARY KEY,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_created (created_at),
+    INDEX idx_activity (last_activity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Tracks user sessions and activity';
+
+-- ============================================================================
+-- USER PREFERENCES TABLE - User settings and preferences
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_preferences (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL,
+    preference_key VARCHAR(100),
+    preference_value TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES session_tracking(session_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_pref (session_id, preference_key),
+    INDEX idx_session (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Stores user preferences and settings';
+
+-- ============================================================================
+-- SESSION HISTORY TABLE - User search and view history
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS session_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL,
+    page_id INT,
+    search_query VARCHAR(500),
+    action_type ENUM('search', 'view', 'click', 'favorite') DEFAULT 'view',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES session_tracking(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE SET NULL,
+    INDEX idx_session (session_id),
+    INDEX idx_page (page_id),
+    INDEX idx_action (action_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Stores user search and browsing history';
+
+-- ============================================================================
+-- USER FAVORITES TABLE - User liked/bookmarked pages
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_favorites (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL,
+    page_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES session_tracking(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_favorite (session_id, page_id),
+    INDEX idx_session (session_id),
+    INDEX idx_page (page_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Stores user favorite pages';
+
+-- ============================================================================
+-- SHARE LINKS TABLE - Shareable page links
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS share_links (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    page_id INT NOT NULL UNIQUE,
+    share_token VARCHAR(100) UNIQUE,
+    shares_count INT DEFAULT 0,
+    unique_shares INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed TIMESTAMP NULL,
+    FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE,
+    INDEX idx_token (share_token),
+    INDEX idx_shares (shares_count)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Stores shareable links for pages';
+
+-- ============================================================================
+-- PAGE QUALITY SCORES TABLE - Page quality assessment
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS page_quality_scores (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    page_id INT NOT NULL UNIQUE,
+    quality_score FLOAT DEFAULT 0,
+    quality_tier VARCHAR(50),
+    details JSON,
+    calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE,
+    INDEX idx_score (quality_score),
+    INDEX idx_tier (quality_tier)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Stores quality scores and assessments for pages';
+
+-- ============================================================================
+-- SEARCH SUGGESTIONS TABLE - Cached search suggestions
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS search_suggestions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    suggestion TEXT NOT NULL UNIQUE,
+    frequency INT DEFAULT 1,
+    quality_score FLOAT DEFAULT 0.5,
+    is_trending BOOLEAN DEFAULT FALSE,
+    last_used TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_frequency (frequency),
+    INDEX idx_trending (is_trending),
+    FULLTEXT INDEX ft_suggestion (suggestion)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Caches popular search suggestions';
+
+-- ============================================================================
+-- DUPLICATE_DETECTION TABLE - Tracks potential duplicate pages
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS duplicate_detection (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    page_id_1 INT NOT NULL,
+    page_id_2 INT NOT NULL,
+    similarity_percentage FLOAT,
+    is_duplicate BOOLEAN DEFAULT FALSE,
+    verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (page_id_1) REFERENCES pages(id) ON DELETE CASCADE,
+    FOREIGN KEY (page_id_2) REFERENCES pages(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_pair (page_id_1, page_id_2),
+    INDEX idx_similarity (similarity_percentage)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Detects and tracks duplicate/similar content';
+
+-- ============================================================================
 -- Database Summary
 -- ============================================================================
--- Total Tables: 10
+-- Total Tables: 18
 -- Total Views: 3
 -- Features:
 -- ✓ Page Caching - Once generated, pages are stored permanently
@@ -271,4 +403,10 @@ LIMIT 50;
 -- ✓ Analytics - Tracks user behavior and trending topics
 -- ✓ Performance Metrics - Monitors cache hit rates and load times
 -- ✓ Similarity Detection - Prevents duplicate pages
+-- ✓ User Sessions - Track user activity and preferences
+-- ✓ Favorites System - Users can bookmark pages
+-- ✓ Quality Scoring - AI-based page quality assessment
+-- ✓ Advanced Search - Multi-faceted search with filters
+-- ✓ Sharing - Create and track shareable links
+-- ✓ Recommendations - Personalized page suggestions
 -- ============================================================================
