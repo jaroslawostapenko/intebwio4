@@ -278,7 +278,11 @@ class PageGenerator {
      * Get inline CSS styles
      */
     private function getInlineStyles() {
-        return '<style>' . file_get_contents(__DIR__ . '/../css/intebwio-page.css') . '</style>' . "\n";
+        $cssFile = __DIR__ . '/../css/intebwio-page.css';
+        if (file_exists($cssFile)) {
+            return '<style>' . file_get_contents($cssFile) . '</style>' . "\n";
+        }
+        return '<style>body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; }</style>' . "\n";
     }
 }
 

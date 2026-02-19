@@ -22,6 +22,7 @@ try {
 // Application Configuration
 define('APP_NAME', 'Intebwio');
 define('APP_VERSION', '1.0.0');
+define('DEBUG_MODE', false);
 define('UPDATE_INTERVAL', 604800); // 7 days in seconds
 define('SIMILARITY_THRESHOLD', 0.75); // 75% similarity to consider as duplicate
 define('MAX_PAGE_CACHE', 5000); // Maximum pages to cache

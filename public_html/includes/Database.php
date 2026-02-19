@@ -181,10 +181,10 @@ class Database {
             
             $threshold = SIMILARITY_THRESHOLD;
             
-            foreach ($pages) {
-                $similarity = $this->calculateSimilarity($searchQuery, $pages['search_query']);
+            foreach ($pages as $page) {
+                $similarity = $this->calculateSimilarity($searchQuery, $page['search_query']);
                 if ($similarity >= $threshold) {
-                    return $pages['id'];
+                    return $page['id'];
                 }
             }
             
