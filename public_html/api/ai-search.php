@@ -1,28 +1,30 @@
 <?php
 /**
  * Intebwio - Advanced Search API with AI
- * One landing page per topic - AI-powered search and generation
- * ~250 lines
+ * Unlimited landing pages per topic - AI-powered search and generation
+ * Full landing page generation using Gemini API
+ * ~300 lines
  */
 
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../includes/config.php';
-require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/ContentAggregator.php';
 require_once __DIR__ . '/../includes/AIService.php';
 require_once __DIR__ . '/../includes/AdvancedPageGenerator.php';
 
 try {
-    $data = json_decode(file_get_contents('php://input'), true);
+    // Accept both POST JSON and GET parameters
+    $data = json_decode(file_get_contents('php://input'), true) ?? $_GET;
     
     if (!isset($data['query']) || empty(trim($data['query']))) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Query is required']);
+        echo json_encode(['success' => false, 'message' => 'Query parameter is required']);
         exit;
     }
     
     $searchQuery = trim($data['query']);
+    $useExisting = isset($data['use_existing']) ? (bool)$data['use_existing'] : false;
     
     // Normalize query (lowercase, remove extra spaces)
     $normalizedQuery = strtolower(preg_replace('/\s+/', ' ', $searchQuery));
@@ -34,169 +36,144 @@ try {
         exit;
     }
     
-    // Initialize services
-    $db = new Database($pdo);
-    
-    // Check for exact match first
-    $stmt = $pdo->prepare("
-        SELECT id, relevance_score, view_count, last_scan_date 
-        FROM pages 
-        WHERE LOWER(search_query) = LOWER(?)
-        LIMIT 1
-    ");
-    $stmt->execute([$normalizedQuery]);
-    $existing = $stmt->fetch();
-    
-    if ($existing) {
-        // Page exists - return it
-        $db->recordActivity($existing['id'], $searchQuery, 'search');
-        $db->updateViewCount($existing['id']);
-        
-        http_response_code(200);
-        echo json_encode([
-            'success' => true,
-            'exists' => true,
-            'page_id' => $existing['id'],
-            'is_new' => false,
-            'message' => 'Found existing page',
-            'metadata' => [
-                'views' => $existing['view_count'],
-                'relevance' => $existing['relevance_score'],
-                'updated' => $existing['last_scan_date']
-            ]
-        ]);
-        exit;
-    }
-    
-    // Check for similar pages (reduce duplication)
-    $stmt = $pdo->prepare("
-        SELECT id, search_query 
-        FROM pages 
-        WHERE status = 'active'
-        AND (
-            LOWER(search_query) LIKE LOWER(CONCAT('%', ?, '%')) OR
-            LOWER(?) LIKE LOWER(CONCAT('%', search_query, '%'))
-        )
-        ORDER BY view_count DESC
-        LIMIT 5
-    ");
-    $stmt->execute([$normalizedQuery, $normalizedQuery]);
-    $similar = $stmt->fetchAll();
-    
-    if (!empty($similar)) {
-        // Found similar page, use it instead
-        $similarId = $similar[0]['id'];
-        $db->recordActivity($similarId, $searchQuery, 'search');
-        $db->updateViewCount($similarId);
-        
-        // Store mapping
-        $mapStmt = $pdo->prepare("
-            INSERT IGNORE INTO similar_pages (page_id, similar_page_id, similarity_score)
-            VALUES (?, ?, 0.85)
+    // Optional: Check for existing page if requested
+    if ($useExisting && function_exists('class_exists') && class_exists('Database')) {
+        $stmt = $pdo->prepare("
+            SELECT id, view_count FROM pages 
+            WHERE LOWER(search_query) = LOWER(?)
+            ORDER BY view_count DESC
+            LIMIT 1
         ");
-        $mapStmt->execute([$similarId, $similarId]);
+        $stmt->execute([$normalizedQuery]);
+        $existing = $stmt->fetch();
         
-        http_response_code(200);
-        echo json_encode([
-            'success' => true,
-            'exists' => true,
-            'page_id' => $similarId,
-            'is_similar' => true,
-            'is_new' => false,
-            'message' => 'Found similar page'
-        ]);
-        exit;
+        if ($existing) {
+            http_response_code(200);
+            echo json_encode([
+                'success' => true,
+                'page_id' => $existing['id'],
+                'is_new' => false,
+                'message' => 'Returning existing page'
+            ]);
+            exit;
+        }
     }
     
-    // NEW PAGE - Generate with AI
-    $db->recordActivity(null, $searchQuery, 'search');
+    // Generate new landing page with Gemini AI
+    $startTime = microtime(true);
     
-    // Step 1: Aggregate content
+    // Step 1: Aggregate content from multiple sources
     $aggregator = new ContentAggregator($pdo);
     $aggregatedResults = $aggregator->aggregateContent($normalizedQuery, 0);
     
+    // If no results from aggregator, use fallback
     if (empty($aggregatedResults)) {
+        $aggregatedResults = [[
+            'title' => $normalizedQuery,
+            'description' => 'Information about ' . $normalizedQuery,
+            'source' => 'AI Generated'
+        ]];
+    }
+    
+    // Step 2: Generate AI content with Gemini
+    $aiService = new AIService(
+        'gemini',
+        GEMINI_API_KEY
+    );
+    
+    // Generate comprehensive HTML content
+    $aiContent = $aiService->generatePageContent($normalizedQuery, $aggregatedResults);
+    
+    if (!$aiContent) {
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'message' => 'Unable to aggregate content'
+            'message' => 'Failed to generate content using Gemini API'
         ]);
         exit;
     }
     
-    // Step 2: Generate AI content
-    $aiService = new AIService(
-        getenv('AI_PROVIDER') ?? 'openai',
-        getenv('AI_API_KEY') ?? ''
-    );
-    
-    $advancedGenerator = new AdvancedPageGenerator($pdo, $aiService);
-    $htmlContent = $advancedGenerator->generateAIPage($normalizedQuery, $aggregatedResults);
+    // Step 3: Generate full landing page using AdvancedPageGenerator
+    $pageGenerator = new AdvancedPageGenerator($pdo, $aiService);
+    $htmlContent = $pageGenerator->generateAIPage($normalizedQuery, $aggregatedResults, $aiContent);
     
     if (!$htmlContent) {
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'message' => 'Failed to generate page'
+            'message' => 'Failed to generate complete landing page'
         ]);
         exit;
     }
     
-    // Step 3: Extract metadata
+    // Step 4: Extract metadata from content
     $title = ucfirst($normalizedQuery);
-    $descriptionMatch = [];
-    preg_match('/<p>(.*?)<\/p>/s', $htmlContent, $descriptionMatch);
-    $description = isset($descriptionMatch[1]) ? strip_tags($descriptionMatch[1]) : 'AI-generated page about ' . $normalizedQuery;
-    $description = substr($description, 0, 200);
+    preg_match('/<meta name="description" content="([^"]*)"/', $htmlContent, $metaMatch);
+    $description = $metaMatch[1] ?? 'AI-generated comprehensive page about ' . $normalizedQuery;
     
-    // Get thumbnail
-    $thumbnailImage = null;
-    foreach ($aggregatedResults as $result) {
-        if (!empty($result['image_url'])) {
-            $thumbnailImage = $result['image_url'];
-            break;
+    // Step 5: Store page in database (if database available)
+    $pageId = null;
+    if (function_exists('class_exists')) {
+        try {
+            $insertStmt = $pdo->prepare("
+                INSERT INTO pages (
+                    search_query, title, description, html_content, 
+                    ai_provider, ai_model, view_count, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, 'active', NOW(), NOW())
+            ");
+            
+            $insertStmt->execute([
+                $normalizedQuery,
+                $title,
+                substr($description, 0, 500),
+                $htmlContent,
+                'gemini',
+                'gemini-pro'
+            ]);
+            
+            $pageId = $pdo->lastInsertId();
+        } catch (Exception $dbError) {
+            error_log("Database insert error: " . $dbError->getMessage());
         }
     }
     
-    // Step 4: Store in database
-    $pageId = $db->createOrGetPage($normalizedQuery, $title, $description, $htmlContent);
-    
-    if (!$pageId) {
-        http_response_code(500);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Failed to save page'
-        ]);
-        exit;
+    // Step 6: Cache the generated page
+    $cacheKey = 'page_' . md5($normalizedQuery . '_' . time());
+    if (function_exists('apcu_store')) {
+        apcu_store($cacheKey, [
+            'page_id' => $pageId,
+            'query' => $normalizedQuery,
+            'timestamp' => time(),
+            'html' => $htmlContent
+        ], 604800); // 7 days
     }
     
-    // Step 5: Store aggregated results
-    foreach ($aggregatedResults as $index => $result) {
-        $result['position_index'] = $index;
-        $db->addSearchResult($pageId, $result);
-    }
+    $generationTime = microtime(true) - $startTime;
     
-    // Step 6: Store in cache
-    $cacheKey = 'page_' . md5($normalizedQuery);
-    apcu_store($cacheKey, [
-        'page_id' => $pageId,
-        'query' => $normalizedQuery,
-        'timestamp' => time()
-    ], 604800); // 7 days
-    
+    // Step 7: Return successful response with full page content
     http_response_code(201); // Created
     echo json_encode([
         'success' => true,
-        'exists' => false,
-        'is_new' => true,
+        'message' => 'Full landing page generated successfully using Gemini AI',
         'page_id' => $pageId,
-        'message' => 'Page generated successfully',
+        'is_new' => true,
+        'query' => $searchQuery,
+        'normalized_query' => $normalizedQuery,
+        'title' => $title,
+        'description' => $description,
+        'html' => $htmlContent,
         'metadata' => [
+            'ai_provider' => 'gemini',
+            'ai_model' => 'gemini-pro',
+            'generation_time_seconds' => round($generationTime, 2),
             'sources_count' => count($aggregatedResults),
-            'generated_by' => 'AI',
-            'title' => $title
+            'cache_key' => $cacheKey,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'content_length' => strlen($htmlContent),
+            'content_words' => str_word_count(strip_tags($htmlContent))
         ]
     ]);
+    
     
 } catch (Exception $e) {
     error_log("Search API error: " . $e->getMessage() . "\n" . $e->getTraceAsString());

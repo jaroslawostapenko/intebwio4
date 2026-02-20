@@ -16,14 +16,23 @@ class AdvancedPageGenerator {
     
     /**
      * Generate complete AI-enhanced page
+     * Can accept pre-generated AI content or generate it fresh
      */
-    public function generateAIPage($searchQuery, $aggregatedContent) {
+    public function generateAIPage($searchQuery, $aggregatedContent, $preGeneratedContent = null) {
         try {
-            // Get AI-generated content
-            $aiContent = $this->aiService->generatePageContent($searchQuery, $aggregatedContent);
+            // Get AI-generated content (use pre-generated if provided)
+            if ($preGeneratedContent) {
+                $aiContent = $preGeneratedContent;
+            } else {
+                $aiContent = $this->aiService->generatePageContent($searchQuery, $aggregatedContent);
+            }
+            
+            if (!$aiContent) {
+                return $this->fallbackPageGenerator($searchQuery, $aggregatedContent);
+            }
             
             // Get SEO metadata
-            $seoMeta = $this->aiService->generateSEOMetadata($searchQuery, $aiContent);
+            $seoMeta = $this->generateSEOMetadata($searchQuery, $aiContent);
             
             // Build complete HTML page
             $html = $this->buildCompleteHTML($searchQuery, $aiContent, $seoMeta, $aggregatedContent);
@@ -33,6 +42,31 @@ class AdvancedPageGenerator {
             error_log("Advanced page generation error: " . $e->getMessage());
             return $this->fallbackPageGenerator($searchQuery, $aggregatedContent);
         }
+    }
+    
+    /**
+     * Generate SEO metadata from content
+     */
+    private function generateSEOMetadata($searchQuery, $aiContent) {
+        $title = ucfirst($searchQuery) . ' - Intebwio';
+        
+        // Extract first paragraph as description
+        preg_match('/<p>(.*?)<\/p>/s', $aiContent, $matches);
+        $description = isset($matches[1]) ? strip_tags($matches[1]) : 'Comprehensive information about ' . $searchQuery;
+        $description = substr($description, 0, 160);
+        
+        // Extract keywords from headings
+        $keywords = [$searchQuery];
+        preg_match_all('/<h[2-6][^>]*>(.*?)<\/h[2-6]>/s', $aiContent, $headings);
+        if (!empty($headings[1])) {
+            $keywords = array_merge($keywords, array_map('strip_tags', array_slice($headings[1], 0, 3)));
+        }
+        
+        return [
+            'title' => $title,
+            'description' => $description,
+            'keywords' => $keywords
+        ];
     }
     
     /**

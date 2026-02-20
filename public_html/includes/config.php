@@ -21,11 +21,12 @@ try {
 
 // Application Configuration
 define('APP_NAME', 'Intebwio');
-define('APP_VERSION', '1.0.0');
+define('APP_VERSION', '2.0.0');
 define('DEBUG_MODE', false);
 define('UPDATE_INTERVAL', 604800); // 7 days in seconds
 define('SIMILARITY_THRESHOLD', 0.75); // 75% similarity to consider as duplicate
 define('MAX_PAGE_CACHE', 5000); // Maximum pages to cache
+define('ALLOW_MULTIPLE_PAGES_PER_TOPIC', true); // Allow multiple variations of same topic
 define('CONTENT_SOURCES', [
     'wikipedia' => 'https://en.wikipedia.org/w/api.php',
     'google_news' => 'https://news.google.com',
@@ -34,7 +35,9 @@ define('CONTENT_SOURCES', [
 ]);
 
 // API Keys (set your actual keys here)
-define('GOOGLE_API_KEY', 'YOUR_GOOGLE_API_KEY');
+define('GOOGLE_API_KEY', 'AIzaSyBbgKuLh-pYnG2S-3woVM53_1cdnuwxino');
+define('GEMINI_API_KEY', 'AIzaSyBbgKuLh-pYnG2S-3woVM53_1cdnuwxino');
+define('AI_PROVIDER', 'gemini');
 define('SERPAPI_KEY', 'YOUR_SERPAPI_KEY');
 
 // Logging
